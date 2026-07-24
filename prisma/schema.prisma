@@ -1,0 +1,303 @@
+// Golapi Shop Online — PostgreSQL Schema (Prisma)
+// প্রথম ভার্সন: বর্তমান Firestore ডেটা মডেল (data.js, admin.js, zone-manager.js,
+// utils.js BRANCH_INFO) থেকে বের করা হয়েছে। Clean Architecture-এর Domain layer
+// হিসেবে এই schema-ই সত্যের একমাত্র উৎস হবে।
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Category {
+  grocery
+  medicine
+  gas
+  cosmetics
+}
+
+enum Zone {
+  noakhali_sadar
+  begumganj
+}
+
+enum ProductStatus {
+  active
+  inactive
+  out_of_stock
+}
+
+enum OrderStatus {
+  pending
+  confirmed
+  assigned
+  out_for_delivery
+  delivered
+  cancelled
+  returned
+}
+
+enum PaymentMethod {
+  cod
+  bkash
+  nagad
+  sslcommerz
+}
+
+enum UserRole {
+  customer
+  admin
+  driver
+  zone_manager
+}
+
+model Branch {
+  zone          Zone     @id
+  label         String
+  address       String
+  managerName   String
+  managerPhone  String
+  bkashNumber   String
+  nagadNumber   String
+  lat           Float
+  lng           Float
+  areas         Area[]
+  products      Product[]
+  orders        Order[]
+  drivers       Driver[]
+  zoneManagers  ZoneManager[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Area {
+  id       String @id @default(cuid())
+  name     String
+  zone     Zone
+  branch   Branch @relation(fields: [zone], references: [zone])
+
+  @@unique([zone, name])
+  @@index([zone])
+}
+
+model User {
+  id            String   @id @default(cuid())
+  phone         String   @unique
+  email         String?  @unique
+  name          String?
+  passwordHash  String?
+  role          UserRole @default(customer)
+  phoneVerified Boolean  @default(false)
+
+  addresses     Address[]
+  orders        Order[]
+  wishlist      WishlistItem[]
+  fcmTokens     FcmToken[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([role])
+}
+
+model Address {
+  id        String  @id @default(cuid())
+  userId    String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label     String  // "বাসা", "অফিস" ইত্যাদি
+  fullName  String
+  phone     String
+  zone      Zone
+  area      String
+  details   String
+  lat       Float?
+  lng       Float?
+  isDefault Boolean @default(false)
+
+  orders    Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model Product {
+  id               String        @id @default(cuid())
+  groupId          String?       // ভ্যারিয়েন্ট গ্রুপিং (data.js zoneProducts())
+  name             String
+  description      String        @default("")
+  category         Category
+  zone             Zone
+  branch           Branch        @relation(fields: [zone], references: [zone])
+  unit             String        @default("পিস")
+
+  price            Decimal       @db.Decimal(10, 2)
+  salePrice        Decimal       @db.Decimal(10, 2)
+  costPrice        Decimal       @db.Decimal(10, 2) @default(0)
+  extraCost        Decimal       @db.Decimal(10, 2) @default(0)
+  deliveryPercent  Decimal       @db.Decimal(5, 2)  @default(0)
+  profitPercent    Decimal       @db.Decimal(5, 2)  @default(20)
+
+  stock            Int           @default(0)
+  cod              Boolean       @default(true)
+  fastDelivery     Boolean       @default(true)
+  isFlash          Boolean       @default(false)
+  isFeatured       Boolean       @default(false)
+  status           ProductStatus @default(active)
+
+  rating           Decimal       @db.Decimal(2, 1) @default(5.0)
+  reviewsCount     Int           @default(0)
+  soldCount        Int           @default(0)
+
+  imageUrl         String?
+  imageUrlSmall    String?
+  imageBlurDataUrl String?
+
+  orderItems       OrderItem[]
+  wishlistedBy     WishlistItem[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([zone, category, status])
+  @@index([groupId])
+  @@index([isFlash])
+  @@index([isFeatured])
+}
+
+model WishlistItem {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, productId])
+}
+
+model Driver {
+  id           String   @id @default(cuid())
+  name         String
+  phone        String   @unique
+  passwordHash String
+  zone         Zone
+  branch       Branch   @relation(fields: [zone], references: [zone])
+  isActive     Boolean  @default(true)
+  currentLat   Float?
+  currentLng   Float?
+
+  orders       Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([zone])
+}
+
+model ZoneManager {
+  id           String @id @default(cuid())
+  name         String
+  phone        String @unique
+  passwordHash String
+  zone         Zone
+  branch       Branch @relation(fields: [zone], references: [zone])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Coupon {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  discountType  String   // "percent" | "flat"
+  discountValue Decimal  @db.Decimal(10, 2)
+  minOrderValue Decimal  @db.Decimal(10, 2) @default(0)
+  maxUses       Int?
+  usedCount     Int      @default(0)
+  validFrom     DateTime
+  validUntil    DateTime
+  isActive      Boolean  @default(true)
+
+  orders        Order[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Order {
+  id              String        @id @default(cuid())
+  orderNumber     String        @unique // মানুষের পড়ার-উপযোগী ID, যেমন GS-2026-00042
+
+  userId          String
+  user            User          @relation(fields: [userId], references: [id])
+  addressId       String
+  address         Address       @relation(fields: [addressId], references: [id])
+
+  zone            Zone
+  branch          Branch        @relation(fields: [zone], references: [zone])
+
+  driverId        String?
+  driver          Driver?       @relation(fields: [driverId], references: [id])
+
+  items           OrderItem[]
+
+  subtotal        Decimal       @db.Decimal(10, 2)
+  deliveryFee     Decimal       @db.Decimal(10, 2) @default(0)
+  discount        Decimal       @db.Decimal(10, 2) @default(0)
+  total           Decimal       @db.Decimal(10, 2)
+
+  couponId        String?
+  coupon          Coupon?       @relation(fields: [couponId], references: [id])
+
+  paymentMethod   PaymentMethod @default(cod)
+  status          OrderStatus   @default(pending)
+
+  customBazarNote String?       // "কাস্টম বাজার" ফিচারের জন্য ফ্রি-টেক্সট লিস্ট
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([zone, status])
+  @@index([driverId])
+  @@index([status])
+}
+
+model OrderItem {
+  id         String  @id @default(cuid())
+  orderId    String
+  order      Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId  String
+  product    Product @relation(fields: [productId], references: [id])
+  quantity   Int
+  unitPrice  Decimal @db.Decimal(10, 2) // অর্ডারের সময়ের দাম (প্রোডাক্টের দাম পরে বদলালেও ইতিহাস ঠিক থাকবে)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model FcmToken {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model AppVersion {
+  id             String   @id @default(cuid())
+  latestVersion  String
+  updateUrl      String?
+  updateMessage  String?
+  forceUpdate    Boolean  @default(false)
+  updatedAt      DateTime @updatedAt
+}
